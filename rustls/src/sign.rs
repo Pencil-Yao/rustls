@@ -153,6 +153,13 @@ pub fn any_ecdsa_type(der: &key::PrivateKey) -> Result<Box<dyn SigningKey>, ()> 
         return Ok(Box::new(ecdsa_p384));
     }
 
+    // if der is 256bit raw data, key import always true
+    if let Ok(ecdsa_sm2p256) = SingleSchemeSigningKey::new(der,
+                                                        SignatureScheme::ECDSA_SM2P256_SM3,
+                                                        &signature::ECDSA_SM2P256_SM3_ASN1_SIGNING) {
+        return Ok(Box::new(ecdsa_sm2p256));
+    }
+
     Err(())
 }
 
@@ -303,6 +310,7 @@ pub fn supported_sign_tls13() -> &'static [SignatureScheme] {
     &[
         SignatureScheme::ECDSA_NISTP384_SHA384,
         SignatureScheme::ECDSA_NISTP256_SHA256,
+        SignatureScheme::ECDSA_SM2P256_SM3,
 
         SignatureScheme::RSA_PSS_SHA512,
         SignatureScheme::RSA_PSS_SHA384,

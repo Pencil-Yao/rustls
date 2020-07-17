@@ -374,6 +374,18 @@ pub static TLS13_AES_128_GCM_SHA256: SupportedCipherSuite = SupportedCipherSuite
     hkdf_algorithm: ring::hkdf::HKDF_SHA256,
 };
 
+pub static TLS_ECDHE_SM4_SM3: SupportedCipherSuite = SupportedCipherSuite {
+    suite: CipherSuite::TLS_ECDHE_SM4_SM3,
+    kx: KeyExchangeAlgorithm::ECDHE,
+    sign: SignatureAlgorithm::ECDSA,
+    bulk: BulkAlgorithm::AES_128_GCM,
+    hash: HashAlgorithm::SHA256,
+    enc_key_len: 16,
+    fixed_iv_len: 4,
+    explicit_nonce_len: 8,
+    hkdf_algorithm: ring::hkdf::HKDF_SM3,
+};
+
 /// A list of all the cipher suites supported by rustls.
 pub static ALL_CIPHERSUITES: [&SupportedCipherSuite; 9] =
     [// TLS1.3 suites

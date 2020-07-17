@@ -256,6 +256,7 @@ fn lookup_scheme(scheme: u16) -> rustls::SignatureScheme {
         0x0601 => rustls::SignatureScheme::RSA_PKCS1_SHA512,
         0x0403 => rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
         0x0503 => rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+        0x0708 => rustls::SignatureScheme::ECDSA_SM2P256_SM3,
         0x0804 => rustls::SignatureScheme::RSA_PSS_SHA256,
         0x0805 => rustls::SignatureScheme::RSA_PSS_SHA384,
         0x0806 => rustls::SignatureScheme::RSA_PSS_SHA512,

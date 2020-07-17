@@ -31,7 +31,8 @@ enum_builder! {
         SHA224 => 0x03,
         SHA256 => 0x04,
         SHA384 => 0x05,
-        SHA512 => 0x06
+        SHA512 => 0x06,
+        SM3 => 0x07
     }
 }
 
@@ -690,7 +691,8 @@ enum_builder! {
         TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256 => 0xccad,
         TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256 => 0xccae,
         SSL_RSA_FIPS_WITH_DES_CBC_SHA => 0xfefe,
-        SSL_RSA_FIPS_WITH_3DES_EDE_CBC_SHA => 0xfeff
+        SSL_RSA_FIPS_WITH_3DES_EDE_CBC_SHA => 0xfeff,
+	    TLS_ECDHE_SM4_SM3 => 0xe011
     }
 }
 
@@ -747,6 +749,7 @@ enum_builder! {
         ECDSA_NISTP384_SHA384 => 0x0503,
         RSA_PKCS1_SHA512 => 0x0601,
         ECDSA_NISTP521_SHA512 => 0x0603,
+        ECDSA_SM2P256_SM3 => 0x0708,
         RSA_PSS_SHA256 => 0x0804,
         RSA_PSS_SHA384 => 0x0805,
         RSA_PSS_SHA512 => 0x0806,

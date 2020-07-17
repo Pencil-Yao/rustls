@@ -228,14 +228,15 @@ impl DecomposedSignatureScheme for SignatureScheme {
                 SignatureScheme::RSA_PSS_SHA512 => SignatureAlgorithm::RSA,
             SignatureScheme::ECDSA_NISTP256_SHA256 |
                 SignatureScheme::ECDSA_NISTP384_SHA384 |
-                SignatureScheme::ECDSA_NISTP521_SHA512 => SignatureAlgorithm::ECDSA,
+                SignatureScheme::ECDSA_NISTP521_SHA512 |
+                SignatureScheme::ECDSA_SM2P256_SM3 => SignatureAlgorithm::ECDSA,
             _ => SignatureAlgorithm::Unknown(0),
         }
     }
 
     fn make(alg: SignatureAlgorithm, hash: HashAlgorithm) -> SignatureScheme {
         use crate::msgs::enums::SignatureAlgorithm::{RSA, ECDSA};
-        use crate::msgs::enums::HashAlgorithm::{SHA1, SHA256, SHA384, SHA512};
+        use crate::msgs::enums::HashAlgorithm::{SHA1, SHA256, SHA384, SHA512, SM3};
 
         match (alg, hash) {
             (RSA, SHA1) => SignatureScheme::RSA_PKCS1_SHA1,
@@ -245,6 +246,7 @@ impl DecomposedSignatureScheme for SignatureScheme {
             (ECDSA, SHA256) => SignatureScheme::ECDSA_NISTP256_SHA256,
             (ECDSA, SHA384) => SignatureScheme::ECDSA_NISTP384_SHA384,
             (ECDSA, SHA512) => SignatureScheme::ECDSA_NISTP521_SHA512,
+            (ECDSA, SM3) => SignatureScheme::ECDSA_SM2P256_SM3,
             (_, _) => unreachable!(),
         }
     }
