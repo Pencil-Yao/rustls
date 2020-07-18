@@ -10,6 +10,8 @@ fn convert_digest_to_hmac_alg(hash: &'static digest::Algorithm) -> hmac::Algorit
         hmac::HMAC_SHA384
     } else if hash == &digest::SHA512 {
         hmac::HMAC_SHA512
+    } else if hash == &digest::SM3_256 {
+        hmac::HMAC_SM3
     } else {
         panic!("bad digest for prf");
     }
