@@ -7,7 +7,7 @@ use crate::msgs::enums::{AlertDescription, HandshakeType, ProtocolVersion};
 use crate::msgs::handshake::ServerExtension;
 use crate::msgs::message::Message;
 use crate::error::TLSError;
-use crate::sign;
+use crate::{sign, suites};
 use crate::verify;
 use crate::key;
 use crate::vecbuf::WriteV;
@@ -293,6 +293,11 @@ impl ServerConfig {
     /// Overrides the default `ClientCertVerifier` with something else.
     pub fn set_client_certificate_verifier(&mut self, verifier: Arc<dyn verify::ClientCertVerifier>) {
         self.verifier = verifier;
+    }
+
+    /// set `ciphersuites` only `TLS_ECDHE_ECDSA_SM4_SM3`
+    pub fn set_sm_cs(&mut self) {
+        self.ciphersuites = vec![&suites::TLS_ECDHE_ECDSA_SM4_SM3];
     }
 }
 
