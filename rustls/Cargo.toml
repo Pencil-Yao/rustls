@@ -15,7 +15,7 @@ autobenches = false
 base64 = "0.11"
 log = { version = "0.4.4", optional = true }
 ring = { git = "https://github.com/Pencil-Yao/ring", branch = "smx" }
-sct = "0.6.0"
+sct = { git = "https://github.com/Pencil-Yao/sct.rs", branch = "smx" }
 webpki = { git = "https://github.com/Pencil-Yao/webpki", branch = "smx" }
 
 [features]
