@@ -19,6 +19,9 @@ pub enum BulkAlgorithm {
 
     /// Chacha20 for confidentiality with poly1305 for authenticity.
     CHACHA20_POLY1305,
+
+    /// sm4 with cfb encrypt mod
+    SM4_CFB,
 }
 
 /// The result of a key exchange.  This has our public key,
@@ -227,6 +230,7 @@ impl SupportedCipherSuite {
             BulkAlgorithm::AES_128_GCM => &ring::aead::AES_128_GCM,
             BulkAlgorithm::AES_256_GCM => &ring::aead::AES_256_GCM,
             BulkAlgorithm::CHACHA20_POLY1305 => &ring::aead::CHACHA20_POLY1305,
+            BulkAlgorithm::SM4_CFB => &ring::aead::SM4_CFB,
         }
     }
 
@@ -378,7 +382,7 @@ pub static TLS_ECDHE_ECDSA_SM4_SM3: SupportedCipherSuite = SupportedCipherSuite 
     suite: CipherSuite::TLS_ECDHE_SM4_SM3,
     kx: KeyExchangeAlgorithm::ECDHE,
     sign: SignatureAlgorithm::ECDSA,
-    bulk: BulkAlgorithm::AES_128_GCM,
+    bulk: BulkAlgorithm::SM4_CFB,
     hash: HashAlgorithm::SM3,
     enc_key_len: 16,
     fixed_iv_len: 4,

@@ -118,6 +118,25 @@ pub fn new_tls12(scs: &'static SupportedCipherSuite,
                                                             write_key,
                                                             write_iv)))
         }
+
+        BulkAlgorithm::SM4_CFB => {
+            offs += scs.fixed_iv_len;
+            let explicit_nonce_offs = &key_block[offs..offs + scs.explicit_nonce_len];
+
+            let mut write_mix_iv = [0; 16];
+            write_mix_iv[..scs.fixed_iv_len].copy_from_slice(write_iv);
+            write_mix_iv[scs.fixed_iv_len..].copy_from_slice(explicit_nonce_offs);
+
+            let mut read_mix_iv = [0; 16];
+            read_mix_iv[..scs.fixed_iv_len].copy_from_slice(read_iv);
+            read_mix_iv[scs.fixed_iv_len..].copy_from_slice(explicit_nonce_offs);
+            (Box::new(CFBMessageDecrypter::new(aead_alg,
+                                                read_key,
+                                               &read_mix_iv)),
+             Box::new(CFBMessageEncrypter::new(aead_alg,
+                                                write_key,
+                                                &write_mix_iv)))
+        }
     }
 }
 
@@ -477,6 +496,109 @@ impl MessageEncrypter for ChaCha20Poly1305MessageEncrypter {
 
         self.enc_key.seal_in_place_append_tag(nonce, aad, &mut buf)
             .map_err(|_| TLSError::General("encrypt failed".to_string()))?;
+
+        Ok(Message {
+            typ: msg.typ,
+            version: msg.version,
+            payload: MessagePayload::new_opaque(buf),
+        })
+    }
+}
+
+/// A `MessageEncrypter` for SM4_CFB ciphersuites.
+pub struct CFBMessageEncrypter {
+    enc_key: aead::LessSafeKey,
+    enc_iv: [u8; 16],
+}
+
+
+/// A `MessageDecrypter` for SM4_CFB ciphersuites.
+pub struct CFBMessageDecrypter {
+    dec_key: aead::LessSafeKey,
+    dec_iv: [u8; 16],
+}
+
+impl CFBMessageEncrypter {
+    fn new(alg: &'static aead::Algorithm,
+           enc_key: &[u8],
+           enc_iv: &[u8]) -> Self {
+        let key = aead::UnboundKey::new(alg, enc_key)
+            .unwrap();
+        let mut ret = CFBMessageEncrypter {
+            enc_key: aead::LessSafeKey::new(key),
+            enc_iv: [0; 16],
+        };
+        debug_assert_eq!(enc_iv.len(), 16);
+        ret.enc_iv.as_mut().write_all(enc_iv).unwrap();
+        ret
+    }
+}
+
+impl CFBMessageDecrypter {
+    fn new(alg: &'static aead::Algorithm,
+           dec_key: &[u8],
+           dec_iv: &[u8]) -> Self {
+        let key = aead::UnboundKey::new(alg, dec_key)
+            .unwrap();
+        let mut ret = CFBMessageDecrypter {
+            dec_key: aead::LessSafeKey::new(key),
+            dec_iv: [0; 16],
+        };
+        debug_assert_eq!(dec_iv.len(), 16);
+        ret.dec_iv.as_mut().write_all(dec_iv).unwrap();
+        ret
+    }
+}
+
+impl MessageEncrypter for CFBMessageEncrypter {
+    fn encrypt(&self, msg: BorrowMessage, seq: u64) -> Result<Message, TLSError> {
+        let nonce = {
+            let mut nonce = [0u8; 12];
+            nonce.as_mut().write_all(&self.enc_iv).unwrap();
+            aead::Nonce::assume_unique_for_key(nonce)
+        };
+        let aad = make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
+
+        let total_len = msg.payload.len() + self.enc_key.algorithm().tag_len();
+        let mut buf = Vec::with_capacity(total_len);
+        buf.extend_from_slice(&msg.payload);
+
+        self.enc_key.seal_in_place_append_tag(nonce, aad, &mut buf)
+            .map_err(|_| TLSError::General("encrypt failed".to_string()))?;
+
+        Ok(Message {
+            typ: msg.typ,
+            version: msg.version,
+            payload: MessagePayload::new_opaque(buf),
+        })
+    }
+}
+
+impl MessageDecrypter for CFBMessageDecrypter {
+    fn decrypt(&self, mut msg: Message, seq: u64) -> Result<Message, TLSError> {
+        let payload = msg.take_opaque_payload()
+            .ok_or(TLSError::DecryptError)?;
+        let mut buf = payload.0;
+
+        let nonce = {
+            let mut nonce = [0u8; 12];
+            nonce.as_mut().write_all(&self.dec_iv).unwrap();
+            aead::Nonce::assume_unique_for_key(nonce)
+        };
+
+        let aad = make_tls12_aad(seq, msg.typ, msg.version, buf.len() - GCM_OVERHEAD);
+
+        let plain_len = self.dec_key.open_in_place(nonce,
+                                                 aad,
+                                                 &mut buf)
+            .map_err(|_| TLSError::DecryptError)?
+            .len();
+
+        if plain_len > MAX_FRAGMENT_LEN {
+            return Err(TLSError::PeerSentOversizedRecord);
+        }
+
+        buf.truncate(plain_len);
 
         Ok(Message {
             typ: msg.typ,
