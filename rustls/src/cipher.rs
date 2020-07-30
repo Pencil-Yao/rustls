@@ -561,7 +561,8 @@ impl CFBMessageDecrypter {
 impl MessageEncrypter for CFBMessageEncrypter {
     fn encrypt(&self, msg: BorrowMessage, seq: u64) -> Result<Message, TLSError> {
         let nonce = make_tls13_nonce(&self.enc_iv, seq);
-        let aad = make_tls12_aad(seq, msg.typ, msg.version, msg.payload.len());
+        let total_len = msg.payload.len() + 1 + self.enc_key.algorithm().tag_len();
+        let aad = make_tls13_aad(total_len);
 
         let total_len = msg.payload.len() + self.enc_key.algorithm().tag_len();
         let mut buf = Vec::with_capacity(total_len);
@@ -586,7 +587,7 @@ impl MessageDecrypter for CFBMessageDecrypter {
 
         let nonce = make_tls13_nonce(&self.dec_iv, seq);
 
-        let aad = make_tls12_aad(seq, msg.typ, msg.version, buf.len() - GCM_OVERHEAD);
+        let aad = make_tls13_aad(buf.len());
 
         let plain_len = self
             .dec_key
