@@ -49,11 +49,13 @@ fn concat(a: &[u8], b: &[u8]) -> Vec<u8> {
     ret
 }
 
-pub fn prf(out: &mut [u8],
-           hashalg: &'static digest::Algorithm,
-           secret: &[u8],
-           label: &[u8],
-           seed: &[u8]) {
+pub fn prf(
+    out: &mut [u8],
+    hashalg: &'static digest::Algorithm,
+    secret: &[u8],
+    label: &[u8],
+    seed: &[u8],
+) {
     let joined_seed = concat(label, seed);
     p(out, hashalg, secret, &joined_seed);
 }

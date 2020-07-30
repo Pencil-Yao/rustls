@@ -1,10 +1,10 @@
-use ring::digest;
-use std::mem;
-use crate::msgs::codec::Codec;
-use crate::msgs::message::{Message, MessagePayload};
-use crate::msgs::handshake::HandshakeMessagePayload;
 #[cfg(feature = "logging")]
 use crate::log::warn;
+use crate::msgs::codec::Codec;
+use crate::msgs::handshake::HandshakeMessagePayload;
+use crate::msgs::message::{Message, MessagePayload};
+use ring::digest;
+use std::mem;
 
 /// This deals with keeping a running hash of the handshake
 /// payloads.  This is computed by buffering initially.  Once
@@ -54,7 +54,7 @@ impl HandshakeHash {
     /// We now know what hash function the verify_data will use.
     pub fn start_hash(&mut self, alg: &'static digest::Algorithm) -> bool {
         match self.alg {
-            None => {},
+            None => {}
             Some(started) => {
                 if started != alg {
                     // hash type is changing
@@ -127,7 +127,8 @@ impl HandshakeHash {
     /// again, with that message at the front.
     pub fn rollup_for_hrr(&mut self) {
         let old_hash = self.ctx.take().unwrap().finish();
-        let old_handshake_hash_msg = HandshakeMessagePayload::build_handshake_hash(old_hash.as_ref());
+        let old_handshake_hash_msg =
+            HandshakeMessagePayload::build_handshake_hash(old_hash.as_ref());
 
         self.ctx = Some(digest::Context::new(self.alg.unwrap()));
         self.update_raw(&old_handshake_hash_msg.get_encoding());
