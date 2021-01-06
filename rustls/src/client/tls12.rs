@@ -570,12 +570,14 @@ impl hs::State for ExpectServerDone {
                     == Some(SignatureScheme::ECDSA_SM2P256_SM3) {
 
                 let encrypt_cert = webpki::EndEntityCert::from(
-                    &st.server_cert.cert_chain[1].0).map_err(TLSError::WebPKIError)?;
-                let server_en_pubkey = encrypt_cert.get_public_key();
+                    &sess.server_cert_chain[1].0).map_err(TLSError::WebPKIError)?;
+                let server_en_pubkey = encrypt_cert.get_public_key()
+                    .map_err(|_| TLSError::PeerMisbehavedError("can't parse server encrypt cert".to_string()))?;
                 let mut rd = Reader::init(&st.server_kx.kx_params);
                 let ecdh_params = ServerECDHParams::read(&mut rd)
                     .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed on sm mode".to_string()))?;
-                if server_en_pubkey.to_vec() != ecdh_params.public.into_inner() {
+                let kx_pubkey: &[u8] = ecdh_params.public.0.as_ref();
+                if server_en_pubkey != kx_pubkey {
                     return Err(TLSError::PeerMisbehavedError("server encrypt cert is not consistent with kx params".to_string()));
                 }
 
