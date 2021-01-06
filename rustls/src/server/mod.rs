@@ -19,6 +19,10 @@ use webpki;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
+use ring::signature;
+use ring::agreement::EphemeralPrivateKey;
+use ring::signature::from_pkcs8_to_ep;
+use crate::server::handy::EphemeralPrivateKeyWrapper;
 
 #[macro_use]
 mod hs;
@@ -103,6 +107,14 @@ pub trait ResolvesServerCert: Send + Sync {
     fn resolve(&self, client_hello: ClientHello) -> Option<sign::CertifiedKey>;
 }
 
+/// How to extract encrypt key for sm hs.
+pub trait ExtractEncryptKey: Send + Sync {
+    /// extract encrypt key for sm hs
+    ///
+    /// Return `None` on non-sm hs
+    fn extract(&self) -> Option<EphemeralPrivateKey>;
+}
+
 /// A struct representing the received Client Hello
 pub struct ClientHello<'a> {
     server_name: Option<webpki::DNSNameRef<'a>>,
@@ -172,6 +184,9 @@ pub struct ServerConfig {
     /// How to choose a server cert and key.
     pub cert_resolver: Arc<dyn ResolvesServerCert>,
 
+    /// How to choose a encrypt cert and key.
+    pub encrypt_cert_key: Arc<dyn ExtractEncryptKey>,
+
     /// Protocol names we support, most preferred first.
     /// If empty we don't do ALPN at all.
     pub alpn_protocols: Vec<Vec<u8>>,
@@ -216,6 +231,7 @@ impl ServerConfig {
             ticketer: Arc::new(handy::NeverProducesTickets {}),
             alpn_protocols: Vec::new(),
             cert_resolver: Arc::new(handy::FailResolveChain {}),
+            encrypt_cert_key: Arc::new(handy::FailSigningKey {}),
             versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2],
             verifier: client_cert_verifier,
             key_log: Arc::new(NoKeyLog {}),
@@ -286,6 +302,20 @@ impl ServerConfig {
         let resolver =
             handy::AlwaysResolvesChain::new_with_extras(cert_chain, &key_der, ocsp, scts)?;
         self.cert_resolver = Arc::new(resolver);
+        Ok(())
+    }
+
+    /// Sets a single certificate chain and matching private key. This
+    /// certificate and key is used for generate work key only on sm mode,
+    /// only accept sm certificate
+    pub fn set_encrypt_key(
+        &mut self,
+        key_der: key::PrivateKey,
+    ) -> Result<(), TLSError> {
+        self.encrypt_cert_key = Arc::new(EphemeralPrivateKeyWrapper(from_pkcs8_to_ep(
+            &signature::ECDSA_SM2P256_SM3_ASN1_SIGNING,
+            &key_der.0,
+        ).map_err(|_| TLSError::General("invalid encrypt private key".into()))?));
         Ok(())
     }
 

@@ -24,6 +24,10 @@ use std::sync::Arc;
 
 use sct;
 use webpki;
+use crate::server::ExtractEncryptKey;
+use crate::server::handy::{FailSigningKey, EphemeralPrivateKeyWrapper};
+use ring::signature::from_pkcs8_to_ep;
+use ring::signature;
 
 #[macro_use]
 mod hs;
@@ -103,6 +107,9 @@ pub struct ClientConfig {
     /// How to decide what client auth certificate/keys to use.
     pub client_auth_cert_resolver: Arc<dyn ResolvesClientCert>,
 
+    /// How to choose a encrypt cert and key.
+    pub encrypt_cert_key: Arc<dyn ExtractEncryptKey>,
+
     /// Whether to support RFC5077 tickets.  You must provide a working
     /// `session_persistence` member for this to have any meaningful
     /// effect.
@@ -159,6 +166,7 @@ impl ClientConfig {
             session_persistence: handy::ClientSessionMemoryCache::new(32),
             mtu: None,
             client_auth_cert_resolver: Arc::new(handy::FailResolveClientCert {}),
+            encrypt_cert_key: Arc::new(FailSigningKey {}),
             enable_tickets: true,
             versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2],
             ct_logs: None,
@@ -225,6 +233,20 @@ impl ClientConfig {
     ) -> Result<(), TLSError> {
         let resolver = handy::AlwaysResolvesClientCert::new(cert_chain, &key_der)?;
         self.client_auth_cert_resolver = Arc::new(resolver);
+        Ok(())
+    }
+
+    /// Sets a single certificate chain and matching private key. This
+    /// certificate and key is used for generate work key only on sm mode,
+    /// only accept sm certificate
+    pub fn set_encrypt_key(
+        &mut self,
+        key_der: key::PrivateKey,
+    ) -> Result<(), TLSError> {
+        self.encrypt_cert_key = Arc::new(EphemeralPrivateKeyWrapper(from_pkcs8_to_ep(
+            &signature::ECDSA_SM2P256_SM3_ASN1_SIGNING,
+            &key_der.0,
+        ).map_err(|_| TLSError::General("invalid encrypt private key".into()))?));
         Ok(())
     }
 

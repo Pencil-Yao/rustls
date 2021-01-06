@@ -21,7 +21,7 @@ pub enum BulkAlgorithm {
     CHACHA20_POLY1305,
 
     /// sm4 with cfb encrypt mod
-    SM4_CFB,
+    SM4_CBC,
 }
 
 /// The result of a key exchange.  This has our public key,
@@ -36,8 +36,8 @@ pub struct KeyExchangeResult {
 /// our private key, and our public key.
 pub struct KeyExchange {
     pub group: NamedGroup,
-    alg: &'static ring::agreement::Algorithm,
-    privkey: ring::agreement::EphemeralPrivateKey,
+    pub alg: &'static ring::agreement::Algorithm,
+    pub privkey: ring::agreement::EphemeralPrivateKey,
     pub pubkey: ring::agreement::PublicKey,
 }
 
@@ -49,6 +49,7 @@ impl KeyExchange {
             NamedGroup::X25519 => Some(&ring::agreement::X25519),
             NamedGroup::secp256r1 => Some(&ring::agreement::ECDH_P256),
             NamedGroup::secp384r1 => Some(&ring::agreement::ECDH_P384),
+            NamedGroup::sm2p256 => Some(&ring::agreement::ECDH_SM2P256),
             _ => None,
         }
     }
@@ -59,6 +60,7 @@ impl KeyExchange {
             NamedGroup::X25519,
             NamedGroup::secp384r1,
             NamedGroup::secp256r1,
+            NamedGroup::sm2p256,
         ]
     }
 
@@ -225,7 +227,7 @@ impl SupportedCipherSuite {
             BulkAlgorithm::AES_128_GCM => &ring::aead::AES_128_GCM,
             BulkAlgorithm::AES_256_GCM => &ring::aead::AES_256_GCM,
             BulkAlgorithm::CHACHA20_POLY1305 => &ring::aead::CHACHA20_POLY1305,
-            BulkAlgorithm::SM4_CFB => &ring::aead::SM4_CFB,
+            BulkAlgorithm::SM4_CBC => &ring::aead::SM4_CBC,
         }
     }
 
@@ -379,11 +381,11 @@ pub static TLS_ECDHE_ECDSA_SM4_SM3: SupportedCipherSuite = SupportedCipherSuite 
     suite: CipherSuite::TLS_ECDHE_SM4_SM3,
     kx: KeyExchangeAlgorithm::ECDHE,
     sign: SignatureAlgorithm::ECDSA,
-    bulk: BulkAlgorithm::SM4_CFB,
+    bulk: BulkAlgorithm::SM4_CBC,
     hash: HashAlgorithm::SM3,
     enc_key_len: 16,
-    fixed_iv_len: 4,
-    explicit_nonce_len: 8,
+    fixed_iv_len: 16,
+    explicit_nonce_len: 0,
     hkdf_algorithm: ring::hkdf::HKDF_SM3,
 };
 

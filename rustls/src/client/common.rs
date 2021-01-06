@@ -1,4 +1,4 @@
-use crate::hash_hs;
+use crate::{hash_hs, SignatureScheme};
 #[cfg(feature = "logging")]
 use crate::log::trace;
 use crate::msgs::enums::ExtensionType;
@@ -167,5 +167,12 @@ impl ClientAuthDetails {
             signer: None,
             auth_context: None,
         }
+    }
+
+    pub fn get_signer_sig_scheme(&self) -> Option<SignatureScheme> {
+        if let Some(ref signer) = self.signer {
+            return Some(signer.get_scheme())
+        }
+        None
     }
 }

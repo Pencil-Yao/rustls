@@ -5,11 +5,11 @@ use crate::handshake::{check_handshake_message, check_message};
 use crate::log::{debug, trace, warn};
 use crate::msgs::base::{Payload, PayloadU8};
 use crate::msgs::ccs::ChangeCipherSpecPayload;
-use crate::msgs::codec::Codec;
-use crate::msgs::enums::ClientCertificateType;
+use crate::msgs::codec::{Codec, Reader};
+use crate::msgs::enums::{ClientCertificateType, NamedGroup};
 use crate::msgs::enums::{AlertDescription, ProtocolVersion};
 use crate::msgs::enums::{ContentType, HandshakeType};
-use crate::msgs::handshake::DecomposedSignatureScheme;
+use crate::msgs::handshake::{DecomposedSignatureScheme, ServerECDHParams};
 use crate::msgs::handshake::DigitallySignedStruct;
 use crate::msgs::handshake::ServerKeyExchangePayload;
 use crate::msgs::handshake::{HandshakeMessagePayload, HandshakePayload};
@@ -26,6 +26,7 @@ use crate::client::hs;
 
 use ring::constant_time;
 use std::mem;
+use crate::msgs::enums::SignatureScheme;
 
 pub struct ExpectCertificate {
     pub handshake: HandshakeDetails,
@@ -562,11 +563,39 @@ impl hs::State for ExpectServerDone {
         }
 
         // 5a.
-        let kxd = sess
-            .common
-            .get_suite_assert()
-            .do_client_kx(&st.server_kx.kx_params)
-            .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?;
+        let kxd = {
+            // todo modify
+            if st.client_auth.is_some() &&
+                st.client_auth.as_ref().unwrap().get_signer_sig_scheme()
+                    == Some(SignatureScheme::ECDSA_SM2P256_SM3) {
+
+                let encrypt_cert = webpki::EndEntityCert::from(
+                    &st.server_cert.cert_chain[1].0).map_err(TLSError::WebPKIError)?;
+                let server_en_pubkey = encrypt_cert.get_public_key();
+                let mut rd = Reader::init(&st.server_kx.kx_params);
+                let ecdh_params = ServerECDHParams::read(&mut rd)
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed on sm mode".to_string()))?;
+                if server_en_pubkey.to_vec() != ecdh_params.public.into_inner() {
+                    return Err(TLSError::PeerMisbehavedError("server encrypt cert is not consistent with kx params".to_string()));
+                }
+
+                let privkey = sess.config.encrypt_cert_key.extract()
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("not given client encrypt cert".to_string()))?;
+                suites::KeyExchange {
+                    group: NamedGroup::sm2p256,
+                    alg: &ring::agreement::ECDH_SM2P256,
+                    pubkey: privkey.compute_public_key().unwrap(),
+                    privkey,
+                }.complete(server_en_pubkey)
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed on sm mode".to_string()))?
+            } else {
+                sess
+                    .common
+                    .get_suite_assert()
+                    .do_client_kx(&st.server_kx.kx_params)
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
+            }
+        };
 
         // 5b.
         emit_clientkx(&mut st.handshake, sess, &kxd);

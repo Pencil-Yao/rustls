@@ -457,11 +457,30 @@ impl ExpectClientHello {
         group: NamedGroup,
         server_certkey: &mut sign::CertifiedKey,
     ) -> Result<suites::KeyExchange, TLSError> {
-        let kx = sess
-            .common
-            .get_suite_assert()
-            .start_server_kx(group)
-            .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?;
+        let signing_key = &server_certkey.key;
+        let signer = signing_key
+            .choose_scheme(&sigschemes)
+            .ok_or_else(|| TLSError::General("incompatible signing key".to_string()))?;
+        let sigscheme = signer.get_scheme();
+
+        let kx = {
+            if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
+                sess
+                    .common
+                    .get_suite_assert()
+                    .start_server_kx(group)
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
+            } else {
+                let privkey = sess.config.encrypt_cert_key.extract()
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("not given server encrypt cert".to_string()))?;
+                suites::KeyExchange {
+                    group: NamedGroup::sm2p256,
+                    alg: &ring::agreement::ECDH_SM2P256,
+                    pubkey: privkey.compute_public_key().unwrap(),
+                    privkey,
+                }
+            }
+        };
         let secdh = ServerECDHParams::new(group, kx.pubkey.as_ref());
 
         let mut msg = Vec::new();
@@ -469,13 +488,7 @@ impl ExpectClientHello {
         msg.extend(&self.handshake.randoms.server);
         secdh.encode(&mut msg);
 
-        let signing_key = &server_certkey.key;
-        let signer = signing_key
-            .choose_scheme(&sigschemes)
-            .ok_or_else(|| TLSError::General("incompatible signing key".to_string()))?;
-        let sigscheme = signer.get_scheme();
         let sig = signer.sign(&msg)?;
-
         let skx = ServerKeyExchangePayload::ECDHE(ECDHEServerKeyExchange {
             params: secdh,
             dss: DigitallySignedStruct::new(sigscheme, sig),
@@ -867,12 +880,14 @@ impl State for ExpectClientHello {
             return Err(incompatible(sess, "no supported sig scheme"));
         }
 
-        let group = suites::KeyExchange::supported_groups()
-            .iter()
-            .filter(|group| groups_ext.contains(group))
-            .nth(0)
-            .cloned()
-            .ok_or_else(|| incompatible(sess, "no supported group"))?;
+        let group = {
+            suites::KeyExchange::supported_groups()
+                .iter()
+                .filter(|group| groups_ext.contains(group))
+                .nth(0)
+                .cloned()
+                .ok_or_else(|| incompatible(sess, "no supported group"))?
+        };
 
         let ecpoint = ECPointFormatList::supported()
             .iter()

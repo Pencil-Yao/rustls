@@ -121,7 +121,7 @@ pub fn new_tls12(
             )
         }
 
-        BulkAlgorithm::SM4_CFB => {
+        BulkAlgorithm::SM4_CBC => {
             offs += scs.fixed_iv_len;
             let explicit_nonce_offs = &key_block[offs..offs + scs.explicit_nonce_len];
 
@@ -139,8 +139,8 @@ pub fn new_tls12(
                 iv
             };
             (
-                Box::new(CFBMessageDecrypter::new(aead_alg, read_key, read_iv)),
-                Box::new(CFBMessageEncrypter::new(aead_alg, write_key, write_iv)),
+                Box::new(CBCMessageDecrypter::new(aead_alg, read_key, read_iv)),
+                Box::new(CBCMessageEncrypter::new(aead_alg, write_key, write_iv)),
             )
         }
     }
@@ -524,22 +524,22 @@ impl MessageEncrypter for ChaCha20Poly1305MessageEncrypter {
     }
 }
 
-/// A `MessageEncrypter` for SM4_CFB ciphersuites.
-pub struct CFBMessageEncrypter {
+/// A `MessageEncrypter` for SM4_CBC ciphersuites.
+pub struct CBCMessageEncrypter {
     enc_key: aead::LessSafeKey,
     enc_iv: Iv,
 }
 
-/// A `MessageDecrypter` for SM4_CFB ciphersuites.
-pub struct CFBMessageDecrypter {
+/// A `MessageDecrypter` for SM4_CBC ciphersuites.
+pub struct CBCMessageDecrypter {
     dec_key: aead::LessSafeKey,
     dec_iv: Iv,
 }
 
-impl CFBMessageEncrypter {
+impl CBCMessageEncrypter {
     fn new(alg: &'static aead::Algorithm, enc_key: &[u8], enc_iv: Iv) -> Self {
         let key = aead::UnboundKey::new(alg, enc_key).unwrap();
-        let ret = CFBMessageEncrypter {
+        let ret = CBCMessageEncrypter {
             enc_key: aead::LessSafeKey::new(key),
             enc_iv,
         };
@@ -547,10 +547,10 @@ impl CFBMessageEncrypter {
     }
 }
 
-impl CFBMessageDecrypter {
+impl CBCMessageDecrypter {
     fn new(alg: &'static aead::Algorithm, dec_key: &[u8], dec_iv: Iv) -> Self {
         let key = aead::UnboundKey::new(alg, dec_key).unwrap();
-        let ret = CFBMessageDecrypter {
+        let ret = CBCMessageDecrypter {
             dec_key: aead::LessSafeKey::new(key),
             dec_iv,
         };
@@ -558,7 +558,7 @@ impl CFBMessageDecrypter {
     }
 }
 
-impl MessageEncrypter for CFBMessageEncrypter {
+impl MessageEncrypter for CBCMessageEncrypter {
     fn encrypt(&self, msg: BorrowMessage, seq: u64) -> Result<Message, TLSError> {
         let nonce = make_tls13_nonce(&self.enc_iv, seq);
         let total_len = msg.payload.len() + 1 + self.enc_key.algorithm().tag_len();
@@ -580,7 +580,7 @@ impl MessageEncrypter for CFBMessageEncrypter {
     }
 }
 
-impl MessageDecrypter for CFBMessageDecrypter {
+impl MessageDecrypter for CBCMessageDecrypter {
     fn decrypt(&self, mut msg: Message, seq: u64) -> Result<Message, TLSError> {
         let payload = msg.take_opaque_payload().ok_or(TLSError::DecryptError)?;
         let mut buf = payload.0;

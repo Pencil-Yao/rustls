@@ -1,12 +1,13 @@
 use crate::error::TLSError;
 use crate::key;
 use crate::server;
-use crate::server::ClientHello;
+use crate::server::{ClientHello, ExtractEncryptKey};
 use crate::sign;
 use webpki;
 
 use std::collections;
 use std::sync::{Arc, Mutex};
+use ring::agreement::EphemeralPrivateKey;
 
 /// Something which never stores sessions.
 pub struct NoServerSessionStorage {}
@@ -91,6 +92,22 @@ pub struct FailResolveChain {}
 impl server::ResolvesServerCert for FailResolveChain {
     fn resolve(&self, _client_hello: ClientHello) -> Option<sign::CertifiedKey> {
         None
+    }
+}
+
+pub struct FailSigningKey {}
+
+impl ExtractEncryptKey for FailSigningKey {
+    fn extract(&self) -> Option<EphemeralPrivateKey> {
+        None
+    }
+}
+
+pub struct EphemeralPrivateKeyWrapper(pub EphemeralPrivateKey);
+
+impl ExtractEncryptKey for EphemeralPrivateKeyWrapper {
+    fn extract(&self) -> Option<EphemeralPrivateKey> {
+        Some(self.0.clone())
     }
 }
 

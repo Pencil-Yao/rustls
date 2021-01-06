@@ -274,7 +274,7 @@ impl Signer for RSASigner {
 /// different protocol versions.
 ///
 /// Currently this is only implemented for ECDSA keys.
-struct SingleSchemeSigningKey {
+pub struct SingleSchemeSigningKey {
     key: Arc<EcdsaKeyPair>,
     scheme: SignatureScheme,
 }
