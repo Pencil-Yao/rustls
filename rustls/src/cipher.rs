@@ -122,25 +122,33 @@ pub fn new_tls12(
         }
 
         BulkAlgorithm::SM4_CBC => {
-            offs += scs.fixed_iv_len;
-            let explicit_nonce_offs = &key_block[offs..offs + scs.explicit_nonce_len];
-
             let write_iv = {
-                let mut iv = Iv(Default::default());
+                let mut iv = SMIv(Default::default());
                 iv.0[..scs.fixed_iv_len].copy_from_slice(write_iv);
-                iv.0[scs.fixed_iv_len..].copy_from_slice(&explicit_nonce_offs);
                 iv
             };
 
             let read_iv = {
-                let mut iv = Iv(Default::default());
+                let mut iv = SMIv(Default::default());
                 iv.0[..scs.fixed_iv_len].copy_from_slice(read_iv);
-                iv.0[scs.fixed_iv_len..].copy_from_slice(&explicit_nonce_offs);
                 iv
             };
+
+            let write_key = {
+                let mut iv = SMKey(Default::default());
+                iv.0[..scs.fixed_iv_len].copy_from_slice(write_key);
+                iv
+            };
+
+            let read_key = {
+                let mut iv = SMKey(Default::default());
+                iv.0[..scs.fixed_iv_len].copy_from_slice(read_key);
+                iv
+            };
+
             (
-                Box::new(CBCMessageDecrypter::new(aead_alg, read_key, read_iv)),
-                Box::new(CBCMessageEncrypter::new(aead_alg, write_key, write_iv)),
+                Box::new(CBCMessageDecrypter::new(read_key, read_iv)),
+                Box::new(CBCMessageEncrypter::new(write_key, write_iv)),
             )
         }
     }
@@ -276,6 +284,22 @@ impl Iv {
 
     #[cfg(test)]
     pub(crate) fn value(&self) -> &[u8; 12] {
+        &self.0
+    }
+}
+
+pub(crate) struct SMIv([u8; 16]);
+
+impl SMIv {
+    fn value(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+pub(crate) struct SMKey([u8; 16]);
+
+impl SMKey {
+    fn value(&self) -> &[u8; 16] {
         &self.0
     }
 }
@@ -526,21 +550,20 @@ impl MessageEncrypter for ChaCha20Poly1305MessageEncrypter {
 
 /// A `MessageEncrypter` for SM4_CBC ciphersuites.
 pub struct CBCMessageEncrypter {
-    enc_key: aead::LessSafeKey,
-    enc_iv: Iv,
+    enc_key: SMKey,
+    enc_iv: SMIv,
 }
 
 /// A `MessageDecrypter` for SM4_CBC ciphersuites.
 pub struct CBCMessageDecrypter {
-    dec_key: aead::LessSafeKey,
-    dec_iv: Iv,
+    dec_key: SMKey,
+    dec_iv: SMIv,
 }
 
 impl CBCMessageEncrypter {
-    fn new(alg: &'static aead::Algorithm, enc_key: &[u8], enc_iv: Iv) -> Self {
-        let key = aead::UnboundKey::new(alg, enc_key).unwrap();
+    fn new(enc_key: SMKey, enc_iv: SMIv) -> Self {
         let ret = CBCMessageEncrypter {
-            enc_key: aead::LessSafeKey::new(key),
+            enc_key,
             enc_iv,
         };
         ret
@@ -548,10 +571,9 @@ impl CBCMessageEncrypter {
 }
 
 impl CBCMessageDecrypter {
-    fn new(alg: &'static aead::Algorithm, dec_key: &[u8], dec_iv: Iv) -> Self {
-        let key = aead::UnboundKey::new(alg, dec_key).unwrap();
+    fn new(dec_key: SMKey, dec_iv: SMIv) -> Self {
         let ret = CBCMessageDecrypter {
-            dec_key: aead::LessSafeKey::new(key),
+            dec_key,
             dec_iv,
         };
         ret
@@ -559,18 +581,10 @@ impl CBCMessageDecrypter {
 }
 
 impl MessageEncrypter for CBCMessageEncrypter {
-    fn encrypt(&self, msg: BorrowMessage, seq: u64) -> Result<Message, TLSError> {
-        let nonce = make_tls13_nonce(&self.enc_iv, seq);
-        let total_len = msg.payload.len() + 1 + self.enc_key.algorithm().tag_len();
-        let aad = make_tls13_aad(total_len);
-
-        let total_len = msg.payload.len() + self.enc_key.algorithm().tag_len();
-        let mut buf = Vec::with_capacity(total_len);
-        buf.extend_from_slice(&msg.payload);
-
-        self.enc_key
-            .seal_in_place_append_tag(nonce, aad, &mut buf)
-            .map_err(|_| TLSError::General("encrypt failed".to_string()))?;
+    fn encrypt(&self, msg: BorrowMessage, _seq: u64) -> Result<Message, TLSError> {
+        let cmode = libsm::sm4::Cipher::new(
+            self.enc_key.value(), libsm::sm4::Mode::Cbc);
+        let buf = cmode.encrypt(msg.payload, self.enc_iv.value());
 
         Ok(Message {
             typ: msg.typ,
@@ -581,25 +595,11 @@ impl MessageEncrypter for CBCMessageEncrypter {
 }
 
 impl MessageDecrypter for CBCMessageDecrypter {
-    fn decrypt(&self, mut msg: Message, seq: u64) -> Result<Message, TLSError> {
+    fn decrypt(&self, mut msg: Message, _seq: u64) -> Result<Message, TLSError> {
         let payload = msg.take_opaque_payload().ok_or(TLSError::DecryptError)?;
-        let mut buf = payload.0;
-
-        let nonce = make_tls13_nonce(&self.dec_iv, seq);
-
-        let aad = make_tls13_aad(buf.len());
-
-        let plain_len = self
-            .dec_key
-            .open_in_place(nonce, aad, &mut buf)
-            .map_err(|_| TLSError::DecryptError)?
-            .len();
-
-        if plain_len > MAX_FRAGMENT_LEN {
-            return Err(TLSError::PeerSentOversizedRecord);
-        }
-
-        buf.truncate(plain_len);
+        let cmode = libsm::sm4::Cipher::new(
+            self.dec_key.value(), libsm::sm4::Mode::Cbc);
+        let buf = cmode.decrypt(&payload.0, self.dec_iv.value());
 
         Ok(Message {
             typ: msg.typ,

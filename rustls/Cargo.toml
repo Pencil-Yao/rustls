@@ -13,6 +13,7 @@ autobenches = false
 
 [dependencies]
 base64 = "0.11"
+libsm = { git = "https://github.com/citahub/libsm", branch = "master" }
 log = { version = "0.4.4", optional = true }
 ring = { git = "https://github.com/Pencil-Yao/ring", branch = "std-tls" }
 sct = { git = "https://github.com/Pencil-Yao/sct.rs", branch = "smx" }
