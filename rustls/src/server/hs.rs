@@ -481,7 +481,13 @@ impl ExpectClientHello {
                 }
             }
         };
-        let secdh = ServerECDHParams::new(group, kx.pubkey.as_ref());
+        let secdh = {
+            if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
+                ServerECDHParams::new(group, kx.pubkey.as_ref())
+            } else {
+                ServerECDHParams::new(NamedGroup::sm2p256, kx.pubkey.as_ref())
+            }
+        };
 
         let mut msg = Vec::new();
         msg.extend(&self.handshake.randoms.client);
