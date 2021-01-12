@@ -266,8 +266,12 @@ fn get_server_session_value_tls12(
     sess: &ServerSessionImpl,
 ) -> persist::ServerSessionValue {
     let scs = sess.common.get_suite_assert();
-    let version = ProtocolVersion::TLSv1_2;
     let secret = secrets.get_master_secret();
+
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
 
     let mut v = persist::ServerSessionValue::new(
         sess.get_sni(),
@@ -301,9 +305,14 @@ pub fn emit_ticket(
         .unwrap_or_else(Vec::new);
     let ticket_lifetime = sess.config.ticketer.get_lifetime();
 
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let m = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::NewSessionTicket,
             payload: HandshakePayload::NewSessionTicket(NewSessionTicketPayload::new(
@@ -318,9 +327,14 @@ pub fn emit_ticket(
 }
 
 pub fn emit_ccs(sess: &mut ServerSessionImpl) {
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let m = Message {
         typ: ContentType::ChangeCipherSpec,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::ChangeCipherSpec(ChangeCipherSpecPayload {}),
     };
 
@@ -336,9 +350,14 @@ pub fn emit_finished(
     let verify_data = secrets.server_verify_data(&vh);
     let verify_data_payload = Payload::new(verify_data);
 
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let f = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::Finished,
             payload: HandshakePayload::Finished(verify_data_payload),

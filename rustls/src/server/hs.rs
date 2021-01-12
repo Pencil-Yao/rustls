@@ -383,13 +383,18 @@ impl ExpectClientHello {
         self.send_cert_status = ep.send_cert_status;
         self.send_sct = ep.send_sct;
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let sh = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::ServerHello,
                 payload: HandshakePayload::ServerHello(ServerHelloPayload {
-                    legacy_version: ProtocolVersion::TLSv1_2,
+                    legacy_version: version,
                     random: Random::from_slice(&self.handshake.randoms.server),
                     session_id: self.handshake.session_id,
                     cipher_suite: sess.common.get_suite_assert().suite,
@@ -412,9 +417,14 @@ impl ExpectClientHello {
     ) {
         let cert_chain = server_certkey.take_cert();
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let c = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::Certificate,
                 payload: HandshakePayload::Certificate(cert_chain),
@@ -437,9 +447,14 @@ impl ExpectClientHello {
         let ocsp = server_certkey.take_ocsp();
         let st = CertificateStatus::new(ocsp.unwrap());
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let c = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::CertificateStatus,
                 payload: HandshakePayload::CertificateStatus(st),
@@ -464,13 +479,16 @@ impl ExpectClientHello {
         let sigscheme = signer.get_scheme();
 
         let kx = {
-            if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
+            if sess.common.negotiated_version != Some(ProtocolVersion::SMTLSv1_1) {
                 sess
                     .common
                     .get_suite_assert()
                     .start_server_kx(group)
                     .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
             } else {
+                if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
+                    return  Err(TLSError::PeerIncompatibleError("client not given sm ecdsa cert at sm tls".to_string()))
+                }
                 let privkey = sess.config.encrypt_cert_key.extract()
                     .ok_or_else(|| TLSError::PeerMisbehavedError("not given server encrypt cert".to_string()))?;
                 suites::KeyExchange {
@@ -482,7 +500,7 @@ impl ExpectClientHello {
             }
         };
         let secdh = {
-            if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
+            if sess.common.negotiated_version != Some(ProtocolVersion::SMTLSv1_1) {
                 ServerECDHParams::new(group, kx.pubkey.as_ref())
             } else {
                 ServerECDHParams::new(NamedGroup::sm2p256, kx.pubkey.as_ref())
@@ -500,9 +518,14 @@ impl ExpectClientHello {
             dss: DigitallySignedStruct::new(sigscheme, sig),
         });
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let m = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::ServerKeyExchange,
                 payload: HandshakePayload::ServerKeyExchange(skx),
@@ -538,9 +561,14 @@ impl ExpectClientHello {
             canames: names,
         };
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let m = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::CertificateRequest,
                 payload: HandshakePayload::CertificateRequest(cr),
@@ -554,9 +582,14 @@ impl ExpectClientHello {
     }
 
     fn emit_server_hello_done(&mut self, sess: &mut ServerSessionImpl) {
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let m = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::ServerHelloDone,
                 payload: HandshakePayload::ServerHelloDone,
@@ -620,6 +653,7 @@ impl State for ExpectClientHello {
         let client_hello = extract_handshake!(m, HandshakePayload::ClientHello).unwrap();
         let tls13_enabled = sess.config.supports_version(ProtocolVersion::TLSv1_3);
         let tls12_enabled = sess.config.supports_version(ProtocolVersion::TLSv1_2);
+        let smtls11_enabled = sess.config.supports_version(ProtocolVersion::SMTLSv1_1);
         trace!("we got a clienthello {:?}", client_hello);
 
         if !client_hello
@@ -642,6 +676,9 @@ impl State for ExpectClientHello {
         if let Some(versions) = maybe_versions_ext {
             if versions.contains(&ProtocolVersion::TLSv1_3) && tls13_enabled {
                 sess.common.negotiated_version = Some(ProtocolVersion::TLSv1_3);
+            } else if versions.contains(&ProtocolVersion::SMTLSv1_1) && smtls11_enabled
+                && client_hello.client_version == ProtocolVersion::SMTLSv1_1 {
+                sess.common.negotiated_version = Some(ProtocolVersion::SMTLSv1_1);
             } else if !versions.contains(&ProtocolVersion::TLSv1_2) || !tls12_enabled {
                 return Err(bad_version(sess, "TLS1.2 not offered/enabled"));
             }
@@ -730,6 +767,11 @@ impl State for ExpectClientHello {
         // (no-op for TLS1.3)
         let suitable_suites =
             suites::reduce_given_sigalg(&sess.config.ciphersuites, certkey.key.algorithm());
+
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            let _ = certkey.key.choose_scheme(&[SignatureScheme::ECDSA_SM2P256_SM3])
+                .ok_or_else(|| bad_version(sess, "only allow sm cert in smtls mode"))?;
+        }
 
         // And version
         let protocol_version = sess.common.negotiated_version.unwrap();

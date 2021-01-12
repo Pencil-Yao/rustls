@@ -204,7 +204,7 @@ fn emit_client_hello_for_retry(
     handshake.resuming_session = find_session(sess, handshake.dns_name.as_ref());
     let (session_id, ticket, resume_version) = if handshake.resuming_session.is_some() {
         let resuming = handshake.resuming_session.as_mut().unwrap();
-        if resuming.version == ProtocolVersion::TLSv1_2 {
+        if resuming.version == ProtocolVersion::TLSv1_2 || resuming.version == ProtocolVersion::SMTLSv1_1 {
             random_sessionid_for_ticket(resuming);
         }
         debug!("Resuming session");
@@ -227,6 +227,7 @@ fn emit_client_hello_for_retry(
 
     let support_tls12 = sess.config.supports_version(ProtocolVersion::TLSv1_2);
     let support_tls13 = sess.config.supports_version(ProtocolVersion::TLSv1_3);
+    let support_smtls11 = sess.config.supports_version(ProtocolVersion::SMTLSv1_1);
 
     let mut supported_versions = Vec::new();
     if support_tls13 {
@@ -235,6 +236,10 @@ fn emit_client_hello_for_retry(
 
     if support_tls12 {
         supported_versions.push(ProtocolVersion::TLSv1_2);
+    }
+
+    if support_smtls11 {
+        supported_versions.push(ProtocolVersion::SMTLSv1_1);
     }
 
     let mut exts = Vec::new();
@@ -312,16 +317,22 @@ fn emit_client_hello_for_retry(
     // Note what extensions we sent.
     hello.sent_extensions = exts.iter().map(ClientExtension::get_type).collect();
 
-    let mut chp = HandshakeMessagePayload {
-        typ: HandshakeType::ClientHello,
-        payload: HandshakePayload::ClientHello(ClientHelloPayload {
-            client_version: ProtocolVersion::TLSv1_2,
-            random: Random::from_slice(&handshake.randoms.client),
-            session_id,
-            cipher_suites: sess.get_cipher_suites(),
-            compression_methods: vec![Compression::Null],
-            extensions: exts,
-        }),
+    let mut chp = {
+        let mut client_version = ProtocolVersion::TLSv1_2;
+        if support_smtls11 && !support_tls12 && !support_tls13 {
+            client_version = ProtocolVersion::SMTLSv1_1;
+        }
+        HandshakeMessagePayload {
+            typ: HandshakeType::ClientHello,
+            payload: HandshakePayload::ClientHello(ClientHelloPayload {
+                client_version,
+                random: Random::from_slice(&handshake.randoms.client),
+                session_id,
+                cipher_suites: sess.get_cipher_suites(),
+                compression_methods: vec![Compression::Null],
+                extensions: exts,
+            })
+        }
     };
 
     let early_key_schedule = if fill_in_binder {
@@ -335,10 +346,14 @@ fn emit_client_hello_for_retry(
         // "This value MUST be set to 0x0303 for all records generated
         //  by a TLS 1.3 implementation other than an initial ClientHello
         //  (i.e., one not generated after a HelloRetryRequest)"
-        version: if retryreq.is_some() {
-            ProtocolVersion::TLSv1_2
+        version: if support_smtls11 && !support_tls12 && !support_tls13 {
+            ProtocolVersion::SMTLSv1_1
         } else {
-            ProtocolVersion::TLSv1_0
+            if retryreq.is_some() {
+                ProtocolVersion::TLSv1_2
+            } else {
+                ProtocolVersion::TLSv1_0
+            }
         },
         payload: MessagePayload::Handshake(chp),
     };
@@ -495,7 +510,7 @@ impl State for ExpectServerHello {
         let server_hello = extract_handshake!(m, HandshakePayload::ServerHello).unwrap();
         trace!("We got ServerHello {:#?}", server_hello);
 
-        use crate::ProtocolVersion::{TLSv1_2, TLSv1_3};
+        use crate::ProtocolVersion::{TLSv1_2, TLSv1_3, SMTLSv1_1};
         let tls13_supported = sess.config.supports_version(TLSv1_3);
 
         let server_version = if server_hello.legacy_version == TLSv1_2 {
@@ -524,6 +539,23 @@ impl State for ExpectServerHello {
                     return Err(illegal_param(
                         sess,
                         "server chose v1.2 using v1.3 extension",
+                    ));
+                }
+            }
+            SMTLSv1_1 if sess.config.supports_version(SMTLSv1_1) => {
+                if sess.early_data.is_enabled() && sess.common.early_traffic {
+                    // The client must fail with a dedicated error code if the server
+                    // responds with TLS 1.2 when offering 0-RTT.
+                    return Err(TLSError::PeerMisbehavedError(
+                        "server chose smtlsv1.1 when offering 0-rtt".to_string(),
+                    ));
+                }
+                sess.common.negotiated_version = Some(SMTLSv1_1);
+
+                if server_hello.get_supported_versions().is_some() {
+                    return Err(illegal_param(
+                        sess,
+                        "server chose smtlsv1.1 using v1.3 extension",
                     ));
                 }
             }

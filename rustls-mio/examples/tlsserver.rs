@@ -490,6 +490,7 @@ fn lookup_versions(versions: &[String]) -> Vec<rustls::ProtocolVersion> {
 
     for vname in versions {
         let version = match vname.as_ref() {
+            "sm1.1" => rustls::ProtocolVersion::SMTLSv1_1,
             "1.2" => rustls::ProtocolVersion::TLSv1_2,
             "1.3" => rustls::ProtocolVersion::TLSv1_3,
             _ => panic!(

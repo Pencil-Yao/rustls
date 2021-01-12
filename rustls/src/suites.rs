@@ -242,6 +242,7 @@ impl SupportedCipherSuite {
         match version {
             ProtocolVersion::TLSv1_3 => self.sign == SignatureAlgorithm::Anonymous,
             ProtocolVersion::TLSv1_2 => self.sign != SignatureAlgorithm::Anonymous,
+            ProtocolVersion::SMTLSv1_1 => self.sign != SignatureAlgorithm::Anonymous,
             _ => false,
         }
     }

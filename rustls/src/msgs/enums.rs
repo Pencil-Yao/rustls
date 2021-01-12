@@ -13,7 +13,8 @@ enum_builder! {
         TLSv1_0 => 0x0301,
         TLSv1_1 => 0x0302,
         TLSv1_2 => 0x0303,
-        TLSv1_3 => 0x0304
+        TLSv1_3 => 0x0304,
+        SMTLSv1_1 => 0x0101 // using tls 1.2 to achieve
     }
 }
 

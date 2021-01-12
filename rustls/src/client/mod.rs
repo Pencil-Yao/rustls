@@ -168,7 +168,7 @@ impl ClientConfig {
             client_auth_cert_resolver: Arc::new(handy::FailResolveClientCert {}),
             encrypt_cert_key: Arc::new(FailSigningKey {}),
             enable_tickets: true,
-            versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2],
+            versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2, ProtocolVersion::SMTLSv1_1],
             ct_logs: None,
             enable_sni: true,
             verifier: Arc::new(verify::WebPKIVerifier::new()),
@@ -255,6 +255,11 @@ impl ClientConfig {
     #[cfg(feature = "dangerous_configuration")]
     pub fn dangerous(&mut self) -> danger::DangerousClientConfig {
         danger::DangerousClientConfig { cfg: self }
+    }
+
+    pub fn use_sm_tls(&mut self) {
+        self.versions = vec![ProtocolVersion::SMTLSv1_1];
+        self.enable_tickets = false;
     }
 }
 

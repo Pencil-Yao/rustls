@@ -137,13 +137,18 @@ impl CompleteClientHelloHandling {
             extensions.push(ServerExtension::PresharedKey(psk_idx as u16));
         }
 
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
+
         let sh = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::ServerHello,
                 payload: HandshakePayload::ServerHello(ServerHelloPayload {
-                    legacy_version: ProtocolVersion::TLSv1_2,
+                    legacy_version: version,
                     random: Random::from_slice(&self.handshake.randoms.server),
                     session_id: *session_id,
                     cipher_suite: sess.common.get_suite_assert().suite,
@@ -227,17 +232,25 @@ impl CompleteClientHelloHandling {
                 return;
             }
         }
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
         let m = Message {
             typ: ContentType::ChangeCipherSpec,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::ChangeCipherSpec(ChangeCipherSpecPayload {}),
         };
         sess.common.send_msg(m, false);
     }
 
     fn emit_hello_retry_request(&mut self, sess: &mut ServerSessionImpl, group: NamedGroup) {
+        let mut version = ProtocolVersion::TLSv1_2;
+        if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+            version = ProtocolVersion::SMTLSv1_1;
+        }
         let mut req = HelloRetryRequest {
-            legacy_version: ProtocolVersion::TLSv1_2,
+            legacy_version: version,
             session_id: SessionID::empty(),
             cipher_suite: sess.common.get_suite_assert().suite,
             extensions: Vec::new(),
@@ -250,7 +263,7 @@ impl CompleteClientHelloHandling {
 
         let m = Message {
             typ: ContentType::Handshake,
-            version: ProtocolVersion::TLSv1_2,
+            version,
             payload: MessagePayload::Handshake(HandshakeMessagePayload {
                 typ: HandshakeType::HelloRetryRequest,
                 payload: HandshakePayload::HelloRetryRequest(req),

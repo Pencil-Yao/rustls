@@ -232,7 +232,7 @@ impl ServerConfig {
             alpn_protocols: Vec::new(),
             cert_resolver: Arc::new(handy::FailResolveChain {}),
             encrypt_cert_key: Arc::new(handy::FailSigningKey {}),
-            versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2],
+            versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2, ProtocolVersion::SMTLSv1_1],
             verifier: client_cert_verifier,
             key_log: Arc::new(NoKeyLog {}),
             #[cfg(feature = "quic")]

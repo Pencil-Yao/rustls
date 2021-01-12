@@ -134,6 +134,10 @@ impl Options {
     fn tls12_supported(&self) -> bool {
         self.support_tls12 && self.version_allowed(ProtocolVersion::TLSv1_2)
     }
+
+    fn smtls11_supported(&self) -> bool {
+        self.support_tls12 && self.version_allowed(ProtocolVersion::SMTLSv1_1)
+    }
 }
 
 fn load_cert(filename: &str) -> Vec<rustls::Certificate> {
@@ -346,6 +350,10 @@ fn make_server_cfg(opts: &Options) -> Arc<rustls::ServerConfig> {
 
     if opts.tls13_supported() {
         cfg.versions.push(ProtocolVersion::TLSv1_3);
+    }
+
+    if opts.smtls11_supported() {
+        cfg.versions.push(ProtocolVersion::SMTLSv1_1);
     }
 
     Arc::new(cfg)

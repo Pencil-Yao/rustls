@@ -218,10 +218,14 @@ fn emit_certificate(
     sess: &mut ClientSessionImpl,
 ) {
     let chosen_cert = client_auth.cert.take();
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
 
     let cert = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::Certificate,
             payload: HandshakePayload::Certificate(chosen_cert.unwrap_or_else(Vec::new)),
@@ -242,9 +246,14 @@ fn emit_clientkx(
     ecpoint.encode(&mut buf);
     let pubkey = Payload::new(buf);
 
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let ckx = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::ClientKeyExchange,
             payload: HandshakePayload::ClientKeyExchange(pubkey),
@@ -272,9 +281,14 @@ fn emit_certverify(
     let sig = signer.sign(&message)?;
     let body = DigitallySignedStruct::new(scheme, sig);
 
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let m = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::CertificateVerify,
             payload: HandshakePayload::CertificateVerify(body),
@@ -287,9 +301,14 @@ fn emit_certverify(
 }
 
 fn emit_ccs(sess: &mut ClientSessionImpl) {
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let ccs = Message {
         typ: ContentType::ChangeCipherSpec,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::ChangeCipherSpec(ChangeCipherSpecPayload {}),
     };
 
@@ -305,9 +324,14 @@ fn emit_finished(
     let verify_data = secrets.client_verify_data(&vh);
     let verify_data_payload = Payload::new(verify_data);
 
+    let mut version = ProtocolVersion::TLSv1_2;
+    if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
+        version = ProtocolVersion::SMTLSv1_1;
+    }
+
     let f = Message {
         typ: ContentType::Handshake,
-        version: ProtocolVersion::TLSv1_2,
+        version,
         payload: MessagePayload::Handshake(HandshakeMessagePayload {
             typ: HandshakeType::Finished,
             payload: HandshakePayload::Finished(verify_data_payload),
@@ -565,9 +589,18 @@ impl hs::State for ExpectServerDone {
         // 5a.
         let kxd = {
             // todo modify
-            if st.client_auth.is_some() &&
-                st.client_auth.as_ref().unwrap().get_signer_sig_scheme()
-                    == Some(SignatureScheme::ECDSA_SM2P256_SM3) {
+            if sess.common.negotiated_version != Some(ProtocolVersion::SMTLSv1_1) {
+                sess
+                    .common
+                    .get_suite_assert()
+                    .do_client_kx(&st.server_kx.kx_params)
+                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
+            } else {
+                if st.client_auth.is_none() ||
+                    st.client_auth.as_ref().unwrap().get_signer_sig_scheme()
+                        != Some(SignatureScheme::ECDSA_SM2P256_SM3) {
+                    return  Err(TLSError::PeerIncompatibleError("server not given sm ecdsa cert at sm tls".to_string()))
+                }
 
                 let encrypt_cert = webpki::EndEntityCert::from(
                     &sess.server_cert_chain[1].0).map_err(TLSError::WebPKIError)?;
@@ -577,6 +610,8 @@ impl hs::State for ExpectServerDone {
                 let ecdh_params = ServerECDHParams::read(&mut rd)
                     .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed on sm mode".to_string()))?;
                 let kx_pubkey: &[u8] = ecdh_params.public.0.as_ref();
+
+                // verify kx pubkey == the second cert of server cert chain
                 if server_en_pubkey != kx_pubkey {
                     return Err(TLSError::PeerMisbehavedError("server encrypt cert is not consistent with kx params".to_string()));
                 }
@@ -590,12 +625,6 @@ impl hs::State for ExpectServerDone {
                     privkey,
                 }.complete(server_en_pubkey)
                     .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed on sm mode".to_string()))?
-            } else {
-                sess
-                    .common
-                    .get_suite_assert()
-                    .do_client_kx(&st.server_kx.kx_params)
-                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
             }
         };
 
