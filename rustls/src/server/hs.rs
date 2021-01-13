@@ -682,6 +682,8 @@ impl State for ExpectClientHello {
             } else if !versions.contains(&ProtocolVersion::TLSv1_2) || !tls12_enabled {
                 return Err(bad_version(sess, "TLS1.2 not offered/enabled"));
             }
+        } else if smtls11_enabled && client_hello.client_version == ProtocolVersion::SMTLSv1_1 {
+            sess.common.negotiated_version = Some(ProtocolVersion::SMTLSv1_1);
         } else if client_hello.client_version.get_u16() < ProtocolVersion::TLSv1_2.get_u16() {
             return Err(bad_version(sess, "Client does not support TLSv1_2"));
         } else if !tls12_enabled && tls13_enabled {

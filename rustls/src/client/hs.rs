@@ -321,6 +321,7 @@ fn emit_client_hello_for_retry(
         let mut client_version = ProtocolVersion::TLSv1_2;
         if support_smtls11 && !support_tls12 && !support_tls13 {
             client_version = ProtocolVersion::SMTLSv1_1;
+            exts.clear();
         }
         HandshakeMessagePayload {
             typ: HandshakeType::ClientHello,
