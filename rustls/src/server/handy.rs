@@ -5,9 +5,9 @@ use crate::server::{ClientHello, ExtractEncryptKey};
 use crate::sign;
 use webpki;
 
+use ring::agreement::EphemeralPrivateKey;
 use std::collections;
 use std::sync::{Arc, Mutex};
-use ring::agreement::EphemeralPrivateKey;
 
 /// Something which never stores sessions.
 pub struct NoServerSessionStorage {}

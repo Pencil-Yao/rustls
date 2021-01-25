@@ -1,4 +1,3 @@
-use crate::cipher;
 use crate::client::ClientSessionImpl;
 use crate::error::TLSError;
 use crate::handshake::check_handshake_message;
@@ -10,9 +9,9 @@ use crate::msgs::codec::{Codec, Reader};
 use crate::msgs::enums::{AlertDescription, Compression, ProtocolVersion};
 use crate::msgs::enums::{ContentType, ExtensionType, HandshakeType};
 use crate::msgs::enums::{ECPointFormat, PSKKeyExchangeMode};
-use crate::msgs::handshake::HelloRetryRequest;
 use crate::msgs::handshake::{CertificateStatusRequest, SCTList};
 use crate::msgs::handshake::{ClientExtension, HasServerExtensions};
+use crate::msgs::handshake::{ClientHelloGmtlsPayload, HelloRetryRequest};
 use crate::msgs::handshake::{ClientHelloPayload, HandshakeMessagePayload, HandshakePayload};
 use crate::msgs::handshake::{ConvertProtocolNameList, ProtocolNameList};
 use crate::msgs::handshake::{ECPointFormatList, SupportedPointFormats};
@@ -24,12 +23,13 @@ use crate::session::SessionSecrets;
 use crate::suites;
 use crate::ticketer;
 use crate::verify;
+use crate::{cipher, CipherSuite};
 #[cfg(feature = "quic")]
 use crate::{msgs::base::PayloadU16, session::Protocol};
 
 use crate::client::common::{ClientHelloDetails, ReceivedTicketDetails};
 use crate::client::common::{HandshakeDetails, ServerCertDetails};
-use crate::client::{tls12, tls13};
+use crate::client::{gmtls, tls12, tls13};
 
 use webpki;
 
@@ -204,7 +204,9 @@ fn emit_client_hello_for_retry(
     handshake.resuming_session = find_session(sess, handshake.dns_name.as_ref());
     let (session_id, ticket, resume_version) = if handshake.resuming_session.is_some() {
         let resuming = handshake.resuming_session.as_mut().unwrap();
-        if resuming.version == ProtocolVersion::TLSv1_2 || resuming.version == ProtocolVersion::SMTLSv1_1 {
+        if resuming.version == ProtocolVersion::TLSv1_2
+            || resuming.version == ProtocolVersion::SMTLSv1_1
+        {
             random_sessionid_for_ticket(resuming);
         }
         debug!("Resuming session");
@@ -318,21 +320,29 @@ fn emit_client_hello_for_retry(
     hello.sent_extensions = exts.iter().map(ClientExtension::get_type).collect();
 
     let mut chp = {
-        let mut client_version = ProtocolVersion::TLSv1_2;
         if support_smtls11 && !support_tls12 && !support_tls13 {
-            client_version = ProtocolVersion::SMTLSv1_1;
-            exts.clear();
-        }
-        HandshakeMessagePayload {
-            typ: HandshakeType::ClientHello,
-            payload: HandshakePayload::ClientHello(ClientHelloPayload {
-                client_version,
-                random: Random::from_slice(&handshake.randoms.client),
-                session_id,
-                cipher_suites: sess.get_cipher_suites(),
-                compression_methods: vec![Compression::Null],
-                extensions: exts,
-            })
+            HandshakeMessagePayload {
+                typ: HandshakeType::ClientHello,
+                payload: HandshakePayload::ClientHelloGmtls(ClientHelloGmtlsPayload {
+                    client_version: ProtocolVersion::SMTLSv1_1,
+                    random: Random::from_slice(&handshake.randoms.client),
+                    session_id,
+                    cipher_suites: vec![CipherSuite::TLS_ECDHE_SM4_SM3],
+                    compression_methods: vec![Compression::Null],
+                }),
+            }
+        } else {
+            HandshakeMessagePayload {
+                typ: HandshakeType::ClientHello,
+                payload: HandshakePayload::ClientHello(ClientHelloPayload {
+                    client_version: ProtocolVersion::TLSv1_2,
+                    random: Random::from_slice(&handshake.randoms.client),
+                    session_id,
+                    cipher_suites: sess.get_cipher_suites(),
+                    compression_methods: vec![Compression::Null],
+                    extensions: exts,
+                }),
+            }
         }
     };
 
@@ -422,6 +432,8 @@ fn emit_client_hello_for_retry(
 
     if support_tls13 && retryreq.is_none() {
         Box::new(ExpectServerHelloOrHelloRetryRequest(next))
+    } else if support_smtls11 && !support_tls12 && !support_tls13 {
+        next.into_gmtls()
     } else {
         Box::new(next)
     }
@@ -500,6 +512,16 @@ impl ExpectServerHello {
             must_issue_new_ticket: self.must_issue_new_ticket,
         })
     }
+
+    fn into_gmtls(self) -> NextState {
+        Box::new(gmtls::ExpectServerHelloGmtls {
+            handshake: self.handshake,
+            early_key_schedule: self.early_key_schedule,
+            hello: self.hello,
+            server_cert: self.server_cert,
+            may_send_cert_status: self.may_send_cert_status,
+        })
+    }
 }
 
 impl State for ExpectServerHello {
@@ -511,7 +533,7 @@ impl State for ExpectServerHello {
         let server_hello = extract_handshake!(m, HandshakePayload::ServerHello).unwrap();
         trace!("We got ServerHello {:#?}", server_hello);
 
-        use crate::ProtocolVersion::{TLSv1_2, TLSv1_3, SMTLSv1_1};
+        use crate::ProtocolVersion::{SMTLSv1_1, TLSv1_2, TLSv1_3};
         let tls13_supported = sess.config.supports_version(TLSv1_3);
 
         let server_version = if server_hello.legacy_version == TLSv1_2 {

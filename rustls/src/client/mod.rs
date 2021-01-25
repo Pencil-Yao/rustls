@@ -22,16 +22,17 @@ use std::io;
 use std::mem;
 use std::sync::Arc;
 
+use crate::server::handy::{EphemeralPrivateKeyWrapper, FailSigningKey};
+use crate::server::ExtractEncryptKey;
+use ring::signature;
+use ring::signature::from_pkcs8_to_ep;
 use sct;
 use webpki;
-use crate::server::ExtractEncryptKey;
-use crate::server::handy::{FailSigningKey, EphemeralPrivateKeyWrapper};
-use ring::signature::from_pkcs8_to_ep;
-use ring::signature;
 
 #[macro_use]
 mod hs;
 mod common;
+mod gmtls;
 pub mod handy;
 mod tls12;
 mod tls13;
@@ -168,7 +169,11 @@ impl ClientConfig {
             client_auth_cert_resolver: Arc::new(handy::FailResolveClientCert {}),
             encrypt_cert_key: Arc::new(FailSigningKey {}),
             enable_tickets: true,
-            versions: vec![ProtocolVersion::TLSv1_3, ProtocolVersion::TLSv1_2, ProtocolVersion::SMTLSv1_1],
+            versions: vec![
+                ProtocolVersion::TLSv1_3,
+                ProtocolVersion::TLSv1_2,
+                ProtocolVersion::SMTLSv1_1,
+            ],
             ct_logs: None,
             enable_sni: true,
             verifier: Arc::new(verify::WebPKIVerifier::new()),
@@ -239,14 +244,11 @@ impl ClientConfig {
     /// Sets a single certificate chain and matching private key. This
     /// certificate and key is used for generate work key only on sm mode,
     /// only accept sm certificate
-    pub fn set_encrypt_key(
-        &mut self,
-        key_der: key::PrivateKey,
-    ) -> Result<(), TLSError> {
-        self.encrypt_cert_key = Arc::new(EphemeralPrivateKeyWrapper(from_pkcs8_to_ep(
-            &signature::ECDSA_SM2P256_SM3_ASN1_SIGNING,
-            &key_der.0,
-        ).map_err(|_| TLSError::General("invalid encrypt private key".into()))?));
+    pub fn set_encrypt_key(&mut self, key_der: key::PrivateKey) -> Result<(), TLSError> {
+        self.encrypt_cert_key = Arc::new(EphemeralPrivateKeyWrapper(
+            from_pkcs8_to_ep(&signature::ECDSA_SM2P256_SM3_ASN1_SIGNING, &key_der.0)
+                .map_err(|_| TLSError::General("invalid encrypt private key".into()))?,
+        ));
         Ok(())
     }
 

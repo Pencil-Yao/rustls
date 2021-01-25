@@ -227,7 +227,7 @@ impl SupportedCipherSuite {
             BulkAlgorithm::AES_128_GCM => &ring::aead::AES_128_GCM,
             BulkAlgorithm::AES_256_GCM => &ring::aead::AES_256_GCM,
             BulkAlgorithm::CHACHA20_POLY1305 => &ring::aead::CHACHA20_POLY1305,
-            BulkAlgorithm::SM4_CBC => &ring::aead::AES_128_GCM,     // todo replace with mock
+            BulkAlgorithm::SM4_CBC => &ring::aead::AES_128_GCM, // todo replace with mock
         }
     }
 

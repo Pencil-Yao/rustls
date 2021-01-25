@@ -562,28 +562,21 @@ pub struct CBCMessageDecrypter {
 
 impl CBCMessageEncrypter {
     fn new(enc_key: SMKey, enc_iv: SMIv) -> Self {
-        let ret = CBCMessageEncrypter {
-            enc_key,
-            enc_iv,
-        };
+        let ret = CBCMessageEncrypter { enc_key, enc_iv };
         ret
     }
 }
 
 impl CBCMessageDecrypter {
     fn new(dec_key: SMKey, dec_iv: SMIv) -> Self {
-        let ret = CBCMessageDecrypter {
-            dec_key,
-            dec_iv,
-        };
+        let ret = CBCMessageDecrypter { dec_key, dec_iv };
         ret
     }
 }
 
 impl MessageEncrypter for CBCMessageEncrypter {
     fn encrypt(&self, msg: BorrowMessage, _seq: u64) -> Result<Message, TLSError> {
-        let cmode = libsm::sm4::Cipher::new(
-            self.enc_key.value(), libsm::sm4::Mode::Cbc);
+        let cmode = libsm::sm4::Cipher::new(self.enc_key.value(), libsm::sm4::Mode::Cbc);
         let buf = cmode.encrypt(msg.payload, self.enc_iv.value());
 
         Ok(Message {
@@ -597,8 +590,7 @@ impl MessageEncrypter for CBCMessageEncrypter {
 impl MessageDecrypter for CBCMessageDecrypter {
     fn decrypt(&self, mut msg: Message, _seq: u64) -> Result<Message, TLSError> {
         let payload = msg.take_opaque_payload().ok_or(TLSError::DecryptError)?;
-        let cmode = libsm::sm4::Cipher::new(
-            self.dec_key.value(), libsm::sm4::Mode::Cbc);
+        let cmode = libsm::sm4::Cipher::new(self.dec_key.value(), libsm::sm4::Mode::Cbc);
         let buf = cmode.decrypt(&payload.0, self.dec_iv.value());
 
         Ok(Message {

@@ -3,6 +3,7 @@ use crate::error::TLSError;
 use crate::log::warn;
 use crate::msgs::enums::{ContentType, HandshakeType};
 use crate::msgs::message::{Message, MessagePayload};
+use crate::ProtocolVersion;
 
 pub fn check_handshake_message(
     m: &Message,
@@ -41,4 +42,8 @@ pub fn check_message(
     }
 
     Ok(())
+}
+
+pub fn check_message_version(m: &Message, version: ProtocolVersion) -> bool {
+    m.version == version
 }

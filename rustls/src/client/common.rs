@@ -1,4 +1,3 @@
-use crate::{hash_hs, SignatureScheme};
 #[cfg(feature = "logging")]
 use crate::log::trace;
 use crate::msgs::enums::ExtensionType;
@@ -13,6 +12,7 @@ use crate::msgs::persist;
 use crate::session::SessionRandoms;
 use crate::sign;
 use crate::suites;
+use crate::{hash_hs, SignatureScheme};
 use webpki;
 
 use std::mem;
@@ -171,7 +171,7 @@ impl ClientAuthDetails {
 
     pub fn get_signer_sig_scheme(&self) -> Option<SignatureScheme> {
         if let Some(ref signer) = self.signer {
-            return Some(signer.get_scheme())
+            return Some(signer.get_scheme());
         }
         None
     }

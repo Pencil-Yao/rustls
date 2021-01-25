@@ -2074,6 +2074,10 @@ pub enum HandshakePayload {
     Finished(Payload),
     CertificateStatus(CertificateStatus),
     MessageHash(Payload),
+    ClientHelloGmtls(ClientHelloGmtlsPayload),
+    ServerHelloGmtls(ServerHelloGmtlsPayload),
+    CertificateRequestGmtls(CertificateRequestGmtlsPayload),
+    ClientKeyExchangeGmtls(ClientKeyExchangeGmtlsPayload),
     Unknown(Payload),
 }
 
@@ -2101,6 +2105,10 @@ impl HandshakePayload {
             HandshakePayload::Finished(ref x) => x.encode(bytes),
             HandshakePayload::CertificateStatus(ref x) => x.encode(bytes),
             HandshakePayload::MessageHash(ref x) => x.encode(bytes),
+            HandshakePayload::ClientHelloGmtls(ref x) => x.encode(bytes),
+            HandshakePayload::ServerHelloGmtls(ref x) => x.encode(bytes),
+            HandshakePayload::CertificateRequestGmtls(ref x) => x.encode(bytes),
+            HandshakePayload::ClientKeyExchangeGmtls(ref x) => x.encode(bytes),
             HandshakePayload::Unknown(ref x) => x.encode(bytes),
         }
     }
@@ -2147,8 +2155,14 @@ impl HandshakeMessagePayload {
 
         let payload = match typ {
             HandshakeType::HelloRequest if sub.left() == 0 => HandshakePayload::HelloRequest,
+            HandshakeType::ClientHello if vers == ProtocolVersion::SMTLSv1_1 => {
+                HandshakePayload::ClientHelloGmtls(ClientHelloGmtlsPayload::read(&mut sub)?)
+            }
             HandshakeType::ClientHello => {
                 HandshakePayload::ClientHello(ClientHelloPayload::read(&mut sub)?)
+            }
+            HandshakeType::ServerHello if vers == ProtocolVersion::SMTLSv1_1 => {
+                HandshakePayload::ServerHelloGmtls(ServerHelloGmtlsPayload::read(&mut sub)?)
             }
             HandshakeType::ServerHello => {
                 let version = ProtocolVersion::read(&mut sub)?;
@@ -2183,8 +2197,18 @@ impl HandshakeMessagePayload {
                 }
                 HandshakePayload::ServerHelloDone
             }
+            HandshakeType::ClientKeyExchange if vers == ProtocolVersion::SMTLSv1_1 => {
+                HandshakePayload::ClientKeyExchangeGmtls(ClientKeyExchangeGmtlsPayload::read(
+                    &mut sub,
+                )?)
+            }
             HandshakeType::ClientKeyExchange => {
                 HandshakePayload::ClientKeyExchange(Payload::read(&mut sub)?)
+            }
+            HandshakeType::CertificateRequest if vers == ProtocolVersion::SMTLSv1_1 => {
+                HandshakePayload::CertificateRequestGmtls(CertificateRequestGmtlsPayload::read(
+                    &mut sub,
+                )?)
             }
             HandshakeType::CertificateRequest if vers == ProtocolVersion::TLSv1_3 => {
                 let p = CertificateRequestPayloadTLS13::read(&mut sub)?;
@@ -2264,5 +2288,138 @@ impl HandshakeMessagePayload {
             typ: HandshakeType::MessageHash,
             payload: HandshakePayload::MessageHash(Payload::new(hash.to_vec())),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct ClientHelloGmtlsPayload {
+    pub client_version: ProtocolVersion,
+    pub random: Random,
+    pub session_id: SessionID,
+    pub cipher_suites: Vec<CipherSuite>,
+    pub compression_methods: Vec<Compression>,
+}
+
+impl Codec for ClientHelloGmtlsPayload {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        self.client_version.encode(bytes);
+        self.random.encode(bytes);
+        self.session_id.encode(bytes);
+        codec::encode_vec_u16(bytes, &self.cipher_suites);
+        codec::encode_vec_u8(bytes, &self.compression_methods);
+    }
+
+    fn read(r: &mut Reader) -> Option<ClientHelloGmtlsPayload> {
+        let ret = ClientHelloGmtlsPayload {
+            client_version: ProtocolVersion::read(r)?,
+            random: Random::read(r)?,
+            session_id: SessionID::read(r)?,
+            cipher_suites: codec::read_vec_u16::<CipherSuite>(r)?,
+            compression_methods: codec::read_vec_u8::<Compression>(r)?,
+        };
+
+        Some(ret)
+    }
+}
+
+#[derive(Debug)]
+pub struct ServerHelloGmtlsPayload {
+    pub server_version: ProtocolVersion,
+    pub random: Random,
+    pub session_id: SessionID,
+    pub cipher_suite: CipherSuite,
+    pub compression_method: Compression,
+}
+
+impl Codec for ServerHelloGmtlsPayload {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        self.server_version.encode(bytes);
+        self.random.encode(bytes);
+
+        self.session_id.encode(bytes);
+        self.cipher_suite.encode(bytes);
+        self.compression_method.encode(bytes);
+    }
+
+    // minus version and random, which have already been read.
+    fn read(r: &mut Reader) -> Option<ServerHelloGmtlsPayload> {
+        let session_id = SessionID::read(r)?;
+        let suite = CipherSuite::read(r)?;
+        let compression = Compression::read(r)?;
+
+        let ret = ServerHelloGmtlsPayload {
+            server_version: ProtocolVersion::Unknown(0),
+            random: ZERO_RANDOM.clone(),
+            session_id,
+            cipher_suite: suite,
+            compression_method: compression,
+        };
+
+        Some(ret)
+    }
+}
+
+#[derive(Debug)]
+pub struct CertificateRequestGmtlsPayload {
+    pub certtypes: ClientCertificateTypes,
+    pub canames: DistinguishedNames,
+}
+
+impl Codec for CertificateRequestGmtlsPayload {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        self.certtypes.encode(bytes);
+        self.canames.encode(bytes);
+    }
+
+    fn read(r: &mut Reader) -> Option<CertificateRequestGmtlsPayload> {
+        let certtypes = ClientCertificateTypes::read(r)?;
+        let canames = DistinguishedNames::read(r)?;
+
+        Some(CertificateRequestGmtlsPayload { certtypes, canames })
+    }
+}
+
+#[derive(Debug)]
+pub enum ClientKeyExchangeGmtlsPayload {
+    ECDHE(Vec<ServerECDHParams>),
+    Unknown(Payload),
+}
+
+impl ClientKeyExchangeGmtlsPayload {
+    pub fn unwrap_payload(&self) -> Option<ClientKeyExchangeGmtlsPayload> {
+        if let ClientKeyExchangeGmtlsPayload::Unknown(ref unk) = *self {
+            let mut rd = Reader::init(&unk.0);
+            let result = codec::read_vec_u16::<ServerECDHParams>(&mut rd)
+                .map(ClientKeyExchangeGmtlsPayload::ECDHE);
+
+            if !rd.any_left() {
+                return result;
+            };
+        }
+        None
+    }
+
+    pub fn encode_params(&self, bytes: &mut Vec<u8>) {
+        bytes.clear();
+
+        if let ClientKeyExchangeGmtlsPayload::ECDHE(ref x) = *self {
+            assert!(!x.is_empty());
+            x[0].encode(bytes);
+        }
+    }
+}
+
+impl Codec for ClientKeyExchangeGmtlsPayload {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        match *self {
+            ClientKeyExchangeGmtlsPayload::ECDHE(ref x) => codec::encode_vec_u16(bytes, x),
+            ClientKeyExchangeGmtlsPayload::Unknown(ref x) => x.encode(bytes),
+        }
+    }
+
+    fn read(r: &mut Reader) -> Option<ClientKeyExchangeGmtlsPayload> {
+        // read as Unknown, fully parse when we know the
+        // KeyExchangeAlgorithm
+        Payload::read(r).map(ClientKeyExchangeGmtlsPayload::Unknown)
     }
 }

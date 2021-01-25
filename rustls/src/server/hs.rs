@@ -1,5 +1,5 @@
 use crate::error::TLSError;
-use crate::handshake::check_handshake_message;
+use crate::handshake::{check_handshake_message, check_message_version};
 #[cfg(feature = "logging")]
 use crate::log::{debug, trace};
 use crate::msgs::codec::Codec;
@@ -20,7 +20,7 @@ use crate::msgs::handshake::{HandshakePayload, SupportedSignatureSchemes};
 use crate::msgs::message::{Message, MessagePayload};
 use crate::msgs::persist;
 use crate::rand;
-use crate::server::{ClientHello, ServerConfig, ServerSessionImpl};
+use crate::server::{gmtls, ClientHello, ServerConfig, ServerSessionImpl};
 #[cfg(feature = "quic")]
 use crate::session::Protocol;
 use crate::session::SessionSecrets;
@@ -480,17 +480,21 @@ impl ExpectClientHello {
 
         let kx = {
             if sess.common.negotiated_version != Some(ProtocolVersion::SMTLSv1_1) {
-                sess
-                    .common
+                sess.common
                     .get_suite_assert()
                     .start_server_kx(group)
-                    .ok_or_else(|| TLSError::PeerMisbehavedError("key exchange failed".to_string()))?
+                    .ok_or_else(|| {
+                        TLSError::PeerMisbehavedError("key exchange failed".to_string())
+                    })?
             } else {
                 if sigscheme != SignatureScheme::ECDSA_SM2P256_SM3 {
-                    return  Err(TLSError::PeerIncompatibleError("client not given sm ecdsa cert at sm tls".to_string()))
+                    return Err(TLSError::PeerIncompatibleError(
+                        "client not given sm ecdsa cert at sm tls".to_string(),
+                    ));
                 }
-                let privkey = sess.config.encrypt_cert_key.extract()
-                    .ok_or_else(|| TLSError::PeerMisbehavedError("not given server encrypt cert".to_string()))?;
+                let privkey = sess.config.encrypt_cert_key.extract().ok_or_else(|| {
+                    TLSError::PeerMisbehavedError("not given server encrypt cert".to_string())
+                })?;
                 suites::KeyExchange {
                     group: NamedGroup::sm2p256,
                     alg: &ring::agreement::ECDH_SM2P256,
@@ -650,6 +654,82 @@ impl State for ExpectClientHello {
     }
 
     fn handle(mut self: Box<Self>, sess: &mut ServerSessionImpl, m: Message) -> NextStateOrError {
+        if check_message_version(&m, ProtocolVersion::SMTLSv1_1) {
+            if !sess.config.supports_version(ProtocolVersion::SMTLSv1_1) {
+                return Err(TLSError::PeerIncompatibleError(
+                    "server didn't set smtls".to_string(),
+                ));
+            }
+            let client_hello = extract_handshake!(m, HandshakePayload::ClientHelloGmtls).unwrap();
+            trace!("we got a smtls clienthello {:?}", client_hello);
+
+            if !client_hello
+                .compression_methods
+                .contains(&Compression::Null)
+            {
+                return Err(TLSError::PeerIncompatibleError(
+                    "client did not offer smtls Null compression".to_string(),
+                ));
+            }
+
+            sess.common.negotiated_version = Some(ProtocolVersion::SMTLSv1_1);
+
+            let certkey = sess.config.cert_resolver.resolve(ClientHello::default());
+            let mut certkey = certkey.ok_or_else(|| {
+                TLSError::PeerIncompatibleError(
+                    "no server smtls certificate chain resolved".to_string(),
+                )
+            })?;
+
+            let _ = certkey
+                .key
+                .choose_scheme(&[SignatureScheme::ECDSA_SM2P256_SM3])
+                .ok_or_else(|| {
+                    TLSError::PeerIncompatibleError("only allow sm cert in smtls mode".to_string())
+                })?;
+
+            if !sess
+                .config
+                .ciphersuites
+                .contains(&&suites::TLS_ECDHE_ECDSA_SM4_SM3)
+            {
+                return Err(TLSError::PeerIncompatibleError(
+                    "not support TLS_ECDHE_ECDSA_SM4_SM3 cipher suite in smtls mode".to_string(),
+                ));
+            }
+
+            sess.common.set_suite(&suites::TLS_ECDHE_ECDSA_SM4_SM3);
+
+            // Start handshake hash.
+            let starting_hash = sess.common.get_suite_assert().get_hash();
+            if !self.handshake.transcript.start_hash(starting_hash) {
+                return Err(TLSError::PeerIncompatibleError(
+                    "hash differed on retry in smtls mode".to_string(),
+                ));
+            }
+
+            // Save their Random.
+            client_hello
+                .random
+                .write_slice(&mut self.handshake.randoms.client);
+
+            self.handshake.transcript.add_message(&m);
+
+            if self.handshake.session_id.is_empty() {
+                let mut bytes = [0u8; 32];
+                rand::fill_random(&mut bytes);
+                self.handshake.session_id = SessionID::new(&bytes);
+            }
+
+            gmtls::emit_server_hello(&mut self, sess)?;
+            gmtls::emit_certificate(&mut self, sess, &mut certkey);
+            let kx = gmtls::emit_server_kx(&mut self, sess, &mut certkey)?;
+            let _ = gmtls::emit_certificate_req(&mut self, sess)?;
+            gmtls::emit_server_hello_done(&mut self, sess);
+
+            return Ok(self.into_expect_tls12_certificate(kx));
+        }
+
         let client_hello = extract_handshake!(m, HandshakePayload::ClientHello).unwrap();
         let tls13_enabled = sess.config.supports_version(ProtocolVersion::TLSv1_3);
         let tls12_enabled = sess.config.supports_version(ProtocolVersion::TLSv1_2);
@@ -676,8 +756,10 @@ impl State for ExpectClientHello {
         if let Some(versions) = maybe_versions_ext {
             if versions.contains(&ProtocolVersion::TLSv1_3) && tls13_enabled {
                 sess.common.negotiated_version = Some(ProtocolVersion::TLSv1_3);
-            } else if versions.contains(&ProtocolVersion::SMTLSv1_1) && smtls11_enabled
-                && client_hello.client_version == ProtocolVersion::SMTLSv1_1 {
+            } else if versions.contains(&ProtocolVersion::SMTLSv1_1)
+                && smtls11_enabled
+                && client_hello.client_version == ProtocolVersion::SMTLSv1_1
+            {
                 sess.common.negotiated_version = Some(ProtocolVersion::SMTLSv1_1);
             } else if !versions.contains(&ProtocolVersion::TLSv1_2) || !tls12_enabled {
                 return Err(bad_version(sess, "TLS1.2 not offered/enabled"));
@@ -771,7 +853,9 @@ impl State for ExpectClientHello {
             suites::reduce_given_sigalg(&sess.config.ciphersuites, certkey.key.algorithm());
 
         if sess.common.negotiated_version == Some(ProtocolVersion::SMTLSv1_1) {
-            let _ = certkey.key.choose_scheme(&[SignatureScheme::ECDSA_SM2P256_SM3])
+            let _ = certkey
+                .key
+                .choose_scheme(&[SignatureScheme::ECDSA_SM2P256_SM3])
                 .ok_or_else(|| bad_version(sess, "only allow sm cert in smtls mode"))?;
         }
 
