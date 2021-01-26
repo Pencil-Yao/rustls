@@ -2343,13 +2343,15 @@ impl Codec for ServerHelloGmtlsPayload {
 
     // minus version and random, which have already been read.
     fn read(r: &mut Reader) -> Option<ServerHelloGmtlsPayload> {
+        let server_version = ProtocolVersion::read(r)?;
+        let random = Random::read(r)?;
         let session_id = SessionID::read(r)?;
         let suite = CipherSuite::read(r)?;
         let compression = Compression::read(r)?;
 
         let ret = ServerHelloGmtlsPayload {
-            server_version: ProtocolVersion::Unknown(0),
-            random: ZERO_RANDOM.clone(),
+            server_version,
+            random,
             session_id,
             cipher_suite: suite,
             compression_method: compression,

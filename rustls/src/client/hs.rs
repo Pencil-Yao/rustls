@@ -533,7 +533,7 @@ impl State for ExpectServerHello {
         let server_hello = extract_handshake!(m, HandshakePayload::ServerHello).unwrap();
         trace!("We got ServerHello {:#?}", server_hello);
 
-        use crate::ProtocolVersion::{SMTLSv1_1, TLSv1_2, TLSv1_3};
+        use crate::ProtocolVersion::{TLSv1_2, TLSv1_3};
         let tls13_supported = sess.config.supports_version(TLSv1_3);
 
         let server_version = if server_hello.legacy_version == TLSv1_2 {
@@ -562,23 +562,6 @@ impl State for ExpectServerHello {
                     return Err(illegal_param(
                         sess,
                         "server chose v1.2 using v1.3 extension",
-                    ));
-                }
-            }
-            SMTLSv1_1 if sess.config.supports_version(SMTLSv1_1) => {
-                if sess.early_data.is_enabled() && sess.common.early_traffic {
-                    // The client must fail with a dedicated error code if the server
-                    // responds with TLS 1.2 when offering 0-RTT.
-                    return Err(TLSError::PeerMisbehavedError(
-                        "server chose smtlsv1.1 when offering 0-rtt".to_string(),
-                    ));
-                }
-                sess.common.negotiated_version = Some(SMTLSv1_1);
-
-                if server_hello.get_supported_versions().is_some() {
-                    return Err(illegal_param(
-                        sess,
-                        "server chose smtlsv1.1 using v1.3 extension",
                     ));
                 }
             }
