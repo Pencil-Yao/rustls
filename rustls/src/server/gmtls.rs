@@ -112,7 +112,7 @@ impl State for ExpectClientKX {
             if let Some(ckxp) = client_kx_p {
                 let mut kx_parm = Vec::new();
                 ckxp.encode_params(&mut kx_parm);
-                kx.server_complete(&kx_parm).ok_or_else(|| {
+                kx.server_complete_gmtls(&kx_parm).ok_or_else(|| {
                     TLSError::PeerMisbehavedError("key exchange completion failed".to_string())
                 })?
             } else {

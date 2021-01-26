@@ -106,6 +106,21 @@ impl KeyExchange {
             .and_then(|ecdh| self.complete(&ecdh.public.0))
     }
 
+    fn decode_client_params_gmtls(&self, kx_params: &[u8]) -> Option<ServerECDHParams> {
+        let mut rd = Reader::init(kx_params);
+        let ecdh_params = ServerECDHParams::read(&mut rd).unwrap();
+        if rd.any_left() {
+            None
+        } else {
+            Some(ecdh_params)
+        }
+    }
+
+    pub fn server_complete_gmtls(self, kx_params: &[u8]) -> Option<KeyExchangeResult> {
+        self.decode_client_params_gmtls(kx_params)
+            .and_then(|ecdh| self.complete(&ecdh.public.0))
+    }
+
     pub fn complete(self, peer: &[u8]) -> Option<KeyExchangeResult> {
         let peer_key = ring::agreement::UnparsedPublicKey::new(self.alg, peer);
         let secret = ring::agreement::agree_ephemeral(self.privkey, &peer_key, (), |v| {
