@@ -242,16 +242,6 @@ impl State for ExpectCertificateRequest {
 
         let mut client_auth = ClientAuthDetails::new();
 
-        // The RFC jovially describes the design here as 'somewhat complicated'
-        // and 'somewhat underspecified'.  So thanks for that.
-
-        // We only support RSA signing at the moment.  If you don't support that,
-        // we're not doing client auth.
-        if !certreq.certtypes.contains(&ClientCertificateType::RSASign) {
-            warn!("Server asked for client auth but without RSASign");
-            return Ok(self.into_expect_server_done(client_auth));
-        }
-
         let canames = certreq
             .canames
             .iter()
