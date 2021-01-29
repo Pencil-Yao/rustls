@@ -366,15 +366,12 @@ impl State for ExpectServerDone {
         sess.server_cert_chain = st.server_cert.take_chain();
 
         // 4.
-        if st.client_auth.is_some() {
-            emit_certificate(&mut st.handshake, st.client_auth.as_mut().unwrap(), sess);
-        }
+        emit_certificate(&mut st.handshake, st.client_auth.as_mut().unwrap(), sess);
 
         // 5a.
         let kxd = {
-            if st.client_auth.is_none()
-                || st.client_auth.as_ref().unwrap().get_signer_sig_scheme()
-                    != Some(SignatureScheme::ECDSA_SM2P256_SM3)
+            if st.client_auth.as_ref().unwrap().get_signer_sig_scheme()
+                != Some(SignatureScheme::ECDSA_SM2P256_SM3)
             {
                 return Err(TLSError::PeerIncompatibleError(
                     "server not given sm ecdsa cert at sm tls".to_string(),
@@ -418,9 +415,7 @@ impl State for ExpectServerDone {
         emit_clientkx(&mut st.handshake, sess, &kxd);
 
         // 5c.
-        if st.client_auth.is_some() {
-            emit_certverify(&mut st.handshake, st.client_auth.as_mut().unwrap(), sess)?;
-        }
+        emit_certverify(&mut st.handshake, st.client_auth.as_mut().unwrap(), sess)?;
 
         // 5d.
         emit_ccs(sess);
@@ -527,11 +522,11 @@ impl State for ExpectFinished {
         // Hash this message too.
         st.handshake.transcript.add_message(&m);
 
-        if st.resuming {
-            emit_ccs(sess);
-            sess.common.record_layer.start_encrypting();
-            emit_finished(&st.secrets, &mut st.handshake, sess);
-        }
+        // if st.resuming {
+        //     emit_ccs(sess);
+        //     sess.common.record_layer.start_encrypting();
+        //     emit_finished(&st.secrets, &mut st.handshake, sess);
+        // }
 
         sess.common.start_traffic();
         Ok(st.into_expect_traffic(fin))
